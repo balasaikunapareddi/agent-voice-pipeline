@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-voice-pipeline"
+version = "0.1.0"
+description = "Modular voice-agent pipeline in the spirit of HuggingFace speech-to-speech: swappable VAD, speech-to-text, LLM, and text-to-speech stages in their own threads connected by queues, with an OpenAI Realtime-compatible server so any Realtime client can point at it."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "litellm",
+    "pyyaml",
+    "numpy",
+    "websockets",
+]
+
+[project.optional-dependencies]
+stt = ["faster-whisper"]
+tts = ["piper-tts"]
+vad = ["onnxruntime"]
+test = ["pytest"]
+
+[project.scripts]
+agent-voice-pipeline = "agent_voice_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

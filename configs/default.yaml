@@ -1,0 +1,11 @@
+# Default pipeline config. Copy and edit; pass with --config.
+# Each stage names a backend; extra keys are passed to that backend.
+vad:
+  backend: energy        # energy (built-in) | silero (needs models/silero_vad.onnx)
+stt:
+  backend: faster-whisper  # faster-whisper (real) | stub | whisper
+  model: tiny
+llm:
+  backend: stub          # stub (offline) | gemini (live, needs GEMINI_API_KEY) | llamacpp
+tts:
+  backend: piper         # piper (real) | stub | kokoro
