@@ -21,10 +21,23 @@ class VoiceAgent:
     dicts, so the whole conversation is inspectable.
     """
 
-    def __init__(self, llm=None, system_prompt: str | None = None):
+    def __init__(self, llm=None, system_prompt: str | None = None,
+                 max_history_turns: int = 20):
         self.llm = llm if llm is not None else make_llm("stub")
         self.system_prompt = system_prompt or SYSTEM_PROMPT
+        # Cap the history: a long-running server would otherwise grow the
+        # context (and the bill) without bound. The system prompt is
+        # always kept; only the oldest turns are dropped.
+        self.max_history_turns = max_history_turns
         self.history: list[dict] = [{"role": "system", "content": self.system_prompt}]
+
+    def _trim_history(self) -> None:
+        keep = 1 + 2 * max(0, self.max_history_turns)
+        if len(self.history) > keep:
+            if keep <= 1:
+                self.history = self.history[:1]
+            else:
+                self.history = [self.history[0]] + self.history[-(keep - 1):]
 
     @property
     def llm_name(self) -> str:
@@ -35,6 +48,7 @@ class VoiceAgent:
         self.history.append({"role": "user", "content": transcript})
         reply = self.llm.reply(self.history).strip()
         self.history.append({"role": "assistant", "content": reply})
+        self._trim_history()
         return reply
 
     def stream_turn(self, transcript: str) -> Iterator[str]:
@@ -45,6 +59,7 @@ class VoiceAgent:
             parts.append(chunk)
             yield chunk
         self.history.append({"role": "assistant", "content": "".join(parts).strip()})
+        self._trim_history()
 
     def reset(self) -> None:
         self.history = [{"role": "system", "content": self.system_prompt}]

@@ -118,19 +118,15 @@ class PiperTTS:
     def synthesize(self, text: str, out_path: str) -> TTSResult:
         t0 = time.time()
         voice = self._load()
+        # Collect all PCM first, then write the file in one go: writing
+        # frame-by-frame left a truncated/corrupt WAV on disk when
+        # synthesis raised halfway through.
         chunks: list[np.ndarray] = []
-        with open(out_path, "wb") as f:
-            import wave
-            w = wave.open(f, "wb")
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(self.sample_rate)
-            for chunk in voice.synthesize(text):
-                pcm = np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16)
-                chunks.append(pcm)
-                w.writeframes(chunk.audio_int16_bytes)
-            w.close()
-        total = sum(len(c) for c in chunks)
+        for chunk in voice.synthesize(text):
+            chunks.append(np.frombuffer(chunk.audio_int16_bytes, dtype=np.int16))
+        pcm = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.int16)
+        write_wav(out_path, pcm.astype(np.float32) / 32767.0, self.sample_rate)
+        total = len(pcm)
         return TTSResult(
             path=out_path, text=text,
             duration_s=total / self.sample_rate if self.sample_rate else 0.0,
@@ -149,6 +145,11 @@ class KokoroTTS:
         self.lang = lang
 
     def synthesize(self, text: str, out_path: str) -> TTSResult:  # pragma: no cover
+        if not text.strip():
+            # Checked before the kokoro import so the failure is a clear
+            # message, not a cryptic numpy error from concatenating zero
+            # audio chunks (or a misleading "not installed" error).
+            raise ValueError("KokoroTTS cannot synthesize empty text")
         try:
             from kokoro import KPipeline  # type: ignore
         except ImportError as e:

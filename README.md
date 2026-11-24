@@ -74,10 +74,10 @@ python -m agent_voice_pipeline demo --wav examples/hello.wav
 ```
 backends: {'vad': 'energy', 'stt': 'faster-whisper', 'llm': 'stub', 'tts': 'piper'}
 
-VAD segments: [(0.064, 2.88)]
+VAD segments: [(0.06, 2.85)]
 You said: Hello, what time does the library open today?
 Agent: The library opens at 9 AM today and closes at 8 PM. Is there anything else I can help with?
-Reply audio: /tmp/reply-offline.wav
+Reply audio: /tmp/agent-voice-pipeline-reply.wav
 Timings (s): vad=0.24, stt=2.81, llm=0.00, tts=1.48
 ```
 
@@ -161,7 +161,7 @@ Result (run firsthand, 2026-11-24):
 [live] LIVE TEST PASSED
 ```
 
-Offline suite: **58 tests pass** (`pytest tests/ -q`), including the
+Offline suite: **66 tests pass** (`pytest tests/ -q`), including the
 real Silero VAD and real faster-whisper checks. The WebSocket server
 was smoke-tested over a real socket (full event flow, commit → audio
 deltas → `response.done`).

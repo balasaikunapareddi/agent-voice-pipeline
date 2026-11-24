@@ -116,3 +116,34 @@ def test_piper_real_synthesis(tmp_path):
     samples, sr = read_wav(str(out), target_sr=r.sample_rate)
     assert sr == 22050
     assert float(np.max(np.abs(samples))) > 0.05
+
+
+def test_litellm_chat_has_default_timeout():
+    """Review fix: LiteLLM has no default timeout, so a stalled request
+    could hang forever. The wrapper now defaults to 120 s."""
+    from agent_voice_pipeline.llm import LiteLLMChat
+    assert LiteLLMChat().kwargs.get("timeout") == 120
+    assert LiteLLMChat(timeout=5).kwargs.get("timeout") == 5
+
+
+def test_kokoro_empty_text_fails_clearly():
+    """Review fix: empty text reached np.concatenate([]) and raised a
+    cryptic numpy error (or a misleading 'not installed' one)."""
+    from agent_voice_pipeline.tts import KokoroTTS
+    import pytest
+    with pytest.raises(ValueError, match="empty text"):
+        KokoroTTS().synthesize("   ", "/tmp/never-written.wav")
+
+
+def test_agent_history_is_capped():
+    """Review fix: history grew without bound — a long-running server
+    would blow up its context (and bill). Only the newest turns stay."""
+    from agent_voice_pipeline.agent import VoiceAgent
+    agent = VoiceAgent(llm=StubLLM(), max_history_turns=3)
+    for i in range(10):
+        agent.run_turn(f"hello {i}")
+    # system + 3 turns (user + assistant each)
+    assert len(agent.history) == 1 + 2 * 3
+    assert agent.history[0]["role"] == "system"
+    assert agent.history[1]["content"] == "hello 7"
+    assert agent.history[-1]["role"] == "assistant"

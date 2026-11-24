@@ -59,6 +59,13 @@ def _read_wav_16k(path: str) -> np.ndarray:
         audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
     elif width == 1:
         audio = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    elif width == 4:
+        audio = np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
+    elif width == 3:
+        arr = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        vals = arr[:, 0] | (arr[:, 1] << 8) | (arr[:, 2] << 16)
+        vals = np.where(vals >= 1 << 23, vals - (1 << 24), vals)
+        audio = vals.astype(np.float32) / 8388608.0
     else:
         raise ValueError(f"unsupported sample width: {width}")
     if ch > 1:

@@ -64,6 +64,9 @@ class LiteLLMChat:
 
     def __init__(self, model: str | None = None, **kwargs):
         self.model = model or DEFAULT_MODEL
+        # A stalled request must not hang forever: LiteLLM has no
+        # default timeout, so set one unless the caller chose otherwise.
+        kwargs.setdefault("timeout", 120)
         self.kwargs = kwargs
 
     def _call(self, messages: list[dict], stream: bool):

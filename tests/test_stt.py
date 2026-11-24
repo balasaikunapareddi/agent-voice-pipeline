@@ -1,5 +1,7 @@
 """STT contracts: stub shape, factory, word accuracy, module CLI."""
 
+import os
+
 import numpy as np
 import pytest
 
@@ -102,3 +104,38 @@ def test_faster_whisper_real_transcription():
     assert r.text, "empty transcript from real STT"
     acc = word_accuracy(r.text, "Hello, what time does the library open today?")
     assert acc["accuracy"] >= 0.75, f"low word accuracy: {acc} / {r.text!r}"
+
+
+def test_word_accuracy_counts_repeated_words():
+    """Review fix: missing/extra used set membership, so one 'the' in the
+    hypothesis hid a second missing 'the' in the reference."""
+    acc = word_accuracy("the cat sat", "the the cat sat")
+    assert acc["correct"] == 3
+    assert acc["total"] == 4
+    assert acc["missing"] == ["the"]
+    assert acc["extra"] == []
+    acc = word_accuracy("hello hello world", "hello world")
+    assert acc["extra"] == ["hello"]
+
+
+def test_stt_example_reads_24bit_wav(tmp_path):
+    """Review fix: the standalone example rejected 24-bit WAVs (only
+    widths 1/2) while the package reader handles 3/4. It now matches."""
+    import importlib.util
+    import wave
+    spec = importlib.util.spec_from_file_location(
+        "stt_example",
+        os.path.join(os.path.dirname(__file__), "..", "examples", "stt_example.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    path = tmp_path / "tone24.wav"
+    samples = (np.sin(2 * np.pi * 220 * np.arange(16000) / 16000) * 0.4 * 8388607).astype(np.int32)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(3)
+        w.setframerate(16000)
+        raw = b"".join(int(v).to_bytes(3, "little", signed=True) for v in samples)
+        w.writeframes(raw)
+    audio = mod._read_wav_16k(str(path))
+    assert len(audio) == 16000
+    assert float(np.max(np.abs(audio))) > 0.3

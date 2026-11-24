@@ -111,3 +111,44 @@ def test_cli_list_backends(capsys):
     assert main(["list-backends"]) == 0
     out = capsys.readouterr().out
     assert "faster-whisper" in out and "piper" in out and "silero" in out
+
+
+def test_cli_demo_default_out_is_temp_not_next_to_input(tmp_path, monkeypatch):
+    """Review fix: the demo used to write reply.wav next to the input WAV
+    (e.g. examples/reply.wav inside the repo) while the README showed a
+    /tmp path. The default is now a temp file."""
+    import tempfile
+    from agent_voice_pipeline.cli import main
+    audio = synth_bursts([(0.3, 1.0)], total_s=2.0)
+    wav = tmp_path / "in.wav"
+    write_wav(str(wav), audio)
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    rc = main(["demo", "--wav", str(wav), "--vad", "energy",
+               "--stt", "stub", "--llm", "stub", "--tts", "stub"])
+    assert rc == 0
+    # The reply went to the temp dir, not next to the input file.
+    assert os.path.exists(tmp_path / "agent-voice-pipeline-reply.wav")
+    assert not os.path.exists(os.path.join(os.path.dirname(str(wav)), "reply.wav"))
+
+
+def test_list_backends_probes_reality(monkeypatch, capsys):
+    """Review fix: 'ready' was half hardcoded — faster-whisper/gemini
+    claimed ready without checking, whisper/llamacpp claimed missing
+    without looking. Now every row is probed."""
+    from agent_voice_pipeline.cli import main
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    assert main(["list-backends"]) == 0
+    out = capsys.readouterr().out
+    lines = {line.split()[1]: line for line in out.splitlines() if line.strip()}
+    # faster-whisper is installed here; whisper (torch) is not.
+    assert "ready" in lines["faster-whisper"]
+    assert "not installed" in lines["whisper"]
+    # No key in this env, so gemini must NOT claim to be ready.
+    assert "not installed" in lines["gemini"]
+    # With a key set, gemini reports ready.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
+    main(["list-backends"])
+    out = capsys.readouterr().out
+    lines = {line.split()[1]: line for line in out.splitlines() if line.strip()}
+    assert "ready" in lines["gemini"]

@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
+import tempfile
+import urllib.request
 
 from . import __version__
 from .pipeline import Pipeline, TurnResult, load_config
@@ -50,8 +53,11 @@ def _add_stage_args(p: argparse.ArgumentParser) -> None:
 
 def cmd_demo(args) -> int:
     pipeline = _build_pipeline(args)
+    # Default reply path is a temp file, NOT next to the input WAV: the
+    # documented demo runs on examples/hello.wav, and writing reply.wav
+    # into examples/ would pollute the repo tree on every run.
     out = args.out or os.path.join(
-        os.path.dirname(os.path.abspath(args.wav)), "reply.wav")
+        tempfile.gettempdir(), "agent-voice-pipeline-reply.wav")
     print(f"backends: {pipeline.backends}")
     result = pipeline.process_file(args.wav, out)
     print(f"\nVAD segments: {result.segments}")
@@ -86,22 +92,47 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def _importable(module: str) -> bool:
+    """True when a module imports cleanly — no install, no side effects."""
+    return importlib.util.find_spec(module) is not None
+
+
+def _llamacpp_reachable(timeout_s: float = 2.0) -> bool:
+    """True when a llama.cpp server answers at LLAMA_CPP_URL."""
+    base = os.environ.get("LLAMA_CPP_URL", "http://127.0.0.1:8080").rstrip("/")
+    try:
+        with urllib.request.urlopen(base + "/v1/models", timeout=timeout_s) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def cmd_list_backends(args) -> int:
-    from .stt import FasterWhisperSTT
+    """Report which backends are actually usable here.
+
+    Every row is probed (import, model file, API key, or server), not
+    hardcoded: an earlier version claimed faster-whisper/gemini were
+    "ready" without checking, and whisper/llamacpp "not installed"
+    without looking.
+    """
     from .tts import PiperTTS
     from .vad import SileroVAD
+    gemini_key = bool(os.environ.get("GEMINI_API_KEY")
+                      or os.environ.get("GOOGLE_API_KEY"))
     rows = [
         ("vad", "energy", True, "built-in, no model"),
         ("vad", "silero", SileroVAD.available(), "needs models/silero_vad.onnx + onnxruntime"),
-        ("stt", "faster-whisper", True, "tiny model, auto-downloads (~75 MB)"),
+        ("stt", "faster-whisper", _importable("faster_whisper"), "tiny model, auto-downloads (~75 MB)"),
         ("stt", "stub", True, "canned transcript (tests only)"),
-        ("stt", "whisper", False, "needs openai-whisper + torch (not installed)"),
-        ("llm", "gemini", True, "LiteLLM, needs GEMINI_API_KEY for live use"),
+        ("stt", "whisper", _importable("whisper"), "needs openai-whisper + torch"),
+        ("llm", "gemini", _importable("litellm") and gemini_key,
+         "LiteLLM, needs GEMINI_API_KEY for live use" if not gemini_key
+         else "LiteLLM, key set"),
         ("llm", "stub", True, "canned replies (tests only)"),
-        ("llm", "llamacpp", False, "needs a llama.cpp server at LLAMA_CPP_URL"),
+        ("llm", "llamacpp", _llamacpp_reachable(), "needs a llama.cpp server at LLAMA_CPP_URL"),
         ("tts", "piper", PiperTTS.available(), "needs models/en_US-lessac-medium.onnx"),
         ("tts", "stub", True, "sine-tone WAV (tests only)"),
-        ("tts", "kokoro", False, "needs kokoro + torch (not installed)"),
+        ("tts", "kokoro", _importable("kokoro"), "needs kokoro + torch"),
     ]
     for stage, name, ok, note in rows:
         print(f"{stage:4} {name:15} {'ready' if ok else 'not installed':13} {note}")

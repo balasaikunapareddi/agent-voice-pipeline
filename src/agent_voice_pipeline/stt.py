@@ -262,12 +262,19 @@ def word_accuracy(hypothesis: str, reference: str) -> dict:
             dp[i + 1][j + 1] = (dp[i][j] + 1 if ref[i] == hyp[j]
                                 else max(dp[i][j + 1], dp[i + 1][j]))
     correct = dp[m][n]
+    # Multiset diffs, so a repeated word counts once per occurrence:
+    # an earlier version used set membership, which reported no missing
+    # word when the hypothesis had one "the" but the reference had two.
+    from collections import Counter
+    ref_counts, hyp_counts = Counter(ref), Counter(hyp)
+    missing = list((ref_counts - hyp_counts).elements())
+    extra = list((hyp_counts - ref_counts).elements())
     return {
         "correct": correct,
         "total": m,
         "accuracy": (correct / m) if m else 1.0,
-        "missing": [w for w in ref if w not in hyp],
-        "extra": [w for w in hyp if w not in ref],
+        "missing": missing,
+        "extra": extra,
     }
 
 

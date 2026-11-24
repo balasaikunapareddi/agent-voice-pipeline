@@ -129,3 +129,21 @@ def test_audio_deltas_are_valid_base64():
     assert deltas
     raw = b"".join(base64.b64decode(d) for d in deltas)
     assert len(raw) % 2 == 0 and len(raw) > 0
+
+
+def test_failed_turn_reports_failed_not_completed():
+    """Review fix: a failed turn emitted an error event but response.done
+    still said 'completed' — a contradiction. It now says 'failed'."""
+    s = _session()
+    out = s.handle_event({"type": "input_audio_buffer.commit"})  # no audio buffered
+    types = [e["type"] for e in out]
+    assert "error" in types
+    done = [e for e in out if e["type"] == "response.done"]
+    assert done and done[0]["response"]["status"] == "failed"
+    # A successful turn still reports completed.
+    tone24 = synth_tone(440.0, 1.0, sr=24000)
+    s.handle_event({"type": "input_audio_buffer.append",
+                    "audio": _pcm16_base64(tone24)})
+    out = s.handle_event({"type": "input_audio_buffer.commit"})
+    done = [e for e in out if e["type"] == "response.done"]
+    assert done and done[0]["response"]["status"] == "completed"

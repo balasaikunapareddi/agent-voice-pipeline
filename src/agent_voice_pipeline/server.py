@@ -96,6 +96,7 @@ class RealtimeSession:
     def _run_turn(self, transcript: str | None = None) -> list[dict]:
         """Run one turn and emit the response.* event stream."""
         events: list[dict] = []
+        failed = False
         response_id = f"resp_{int(time.time() * 1000)}"
         events.append(self._event("response.created",
                                   response={"id": response_id, "status": "in_progress"}))
@@ -139,7 +140,8 @@ class RealtimeSession:
                 audio, sr = read_wav(tmp.name, target_sr=tts.sample_rate)
                 pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
                 raw = pcm.tobytes()
-                step = 4800  # 0.2 s at 24 kHz, in bytes (2 bytes/sample)
+                # 0.2 s chunks at the TTS sample rate (2 bytes/sample).
+                step = int(sr * 0.2) * 2
                 for i in range(0, len(raw), step):
                     events.append(self._event(
                         "response.audio.delta", response_id=response_id,
@@ -151,9 +153,13 @@ class RealtimeSession:
                                       output_index=0, item_id=f"msg_{response_id}",
                                       content_index=1))
         except Exception as e:
+            failed = True
             events.append(self._error(f"turn failed: {e}", code="turn_failed"))
+        # A failed turn reports status "failed", not "completed": an error
+        # event plus a "completed" response.done was a contradiction.
         events.append(self._event("response.done",
-                                  response={"id": response_id, "status": "completed"}))
+                                  response={"id": response_id,
+                                            "status": "failed" if failed else "completed"}))
         self._pcm24k.clear()
         return events
 
@@ -222,7 +228,7 @@ async def serve_websocket(pipeline: Pipeline, host: str = "127.0.0.1",
             for out in session.handle_event(event):
                 await ws.send(json.dumps(out))
 
-    async with websockets.serve(handler, host, port):
+    async with websockets.serve(handler, host, port, max_size=16 * 1024 * 1024):
         import asyncio
         print(f"Realtime server listening on ws://{host}:{port}/v1/realtime")
         await asyncio.Future()  # run forever
@@ -233,12 +239,19 @@ def serve_sse(pipeline: Pipeline, host: str = "127.0.0.1", port: int = 8765) -> 
 
     POST a JSON event to /v1/realtime; the reply streams back as
     ``text/event-stream``. Same event shapes as the WebSocket server.
+
+    Single-client transport: one RealtimeSession is shared by every
+    connection (the audio buffer lives across POSTs), so concurrent
+    clients would interleave each other's audio. A lock serialises
+    event handling; use the WebSocket transport for concurrent clients.
     """
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class Handler(BaseHTTPRequestHandler):
         session = RealtimeSession(pipeline)
+        # Serialises event handling on the shared session (see docstring).
+        lock = threading.Lock()
 
         def log_message(self, *args):  # keep the terminal quiet
             pass
@@ -253,7 +266,8 @@ def serve_sse(pipeline: Pipeline, host: str = "127.0.0.1", port: int = 8765) -> 
             except json.JSONDecodeError:
                 self.send_error(400, "invalid JSON")
                 return
-            events = self.session.handle_event(event)
+            with self.lock:
+                events = self.session.handle_event(event)
             body = "".join(
                 f"data: {json.dumps(e)}\n\n" for e in events).encode()
             self.send_response(200)
