@@ -147,3 +147,37 @@ def test_failed_turn_reports_failed_not_completed():
     out = s.handle_event({"type": "input_audio_buffer.commit"})
     done = [e for e in out if e["type"] == "response.done"]
     assert done and done[0]["response"]["status"] == "completed"
+
+
+def test_sse_server_smoke_over_http():
+    """The SSE transport serves real HTTP: POST an event, get SSE back.
+    Exercises the shared-session + lock path in serve_sse."""
+    import json
+    import socket
+    import threading
+    import urllib.request
+    from agent_voice_pipeline.server import serve_sse
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    t = threading.Thread(target=serve_sse, args=(_session().pipeline,),
+                         kwargs={"host": "127.0.0.1", "port": port}, daemon=True)
+    t.start()
+    import time
+    deadline = time.time() + 10
+    body = None
+    while time.time() < deadline:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/realtime",
+                data=json.dumps({"type": "session.update",
+                                 "session": {"voice": "echo"}}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=2) as r:
+                body = r.read().decode()
+            break
+        except Exception:
+            time.sleep(0.2)
+    assert body is not None, "SSE server did not answer"
+    assert "session.updated" in body
+    assert "echo" in body

@@ -161,7 +161,7 @@ Result (run firsthand, 2026-11-24):
 [live] LIVE TEST PASSED
 ```
 
-Offline suite: **66 tests pass** (`pytest tests/ -q`), including the
+Offline suite: **67 tests pass** (`pytest tests/ -q`), including the
 real Silero VAD and real faster-whisper checks. The WebSocket server
 was smoke-tested over a real socket (full event flow, commit → audio
 deltas → `response.done`).
@@ -210,7 +210,7 @@ examples/
   stt_example.py    copy-pasteable standalone STT
 configs/default.yaml
 scripts/live_test.py
-tests/              58 offline tests
+tests/              67 offline tests
 ```
 
 ## License
